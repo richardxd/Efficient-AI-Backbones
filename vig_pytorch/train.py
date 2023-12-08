@@ -30,15 +30,22 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 import torchvision.utils
+import torchvision.transforms as transforms
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
-from timm.data import Dataset, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset #, create_loader
+from timm.data import Dataset
+from timm.data import resolve_data_config
+from timm.data import Mixup
+from timm.data import FastCollateMixup
+from timm.data import AugMixDataset #, create_loader
+
 from timm.models import create_model, resume_checkpoint, convert_splitbn_model
 from timm.utils import *
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy, JsdCrossEntropy
 from timm.optim import create_optimizer
 from timm.scheduler import create_scheduler
 from timm.utils import ApexScaler, NativeScaler
+
 
 from data.myloader import create_loader
 import pyramid_vig
@@ -72,8 +79,8 @@ parser.add_argument('-c', '--config', default='', type=str, metavar='FILE',
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 # Dataset / Model parameters
-parser.add_argument('data', metavar='DIR',
-                    help='path to dataset')
+# parser.add_argument('data', metavar='DIR',
+#                     help='path to dataset')
 parser.add_argument('--model', default='resnet101', type=str, metavar='MODEL',
                     help='Name of model to train (default: "countception"')
 parser.add_argument('--pretrained', action='store_true', default=False,
@@ -84,8 +91,8 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='Resume full model and optimizer state from checkpoint (default: none)')
 parser.add_argument('--no-resume-opt', action='store_true', default=False,
                     help='prevent resume of optimizer state when resuming model')
-parser.add_argument('--num-classes', type=int, default=1000, metavar='N',
-                    help='number of label classes (default: 1000)')
+parser.add_argument('--num-classes', type=int, default=10, metavar='N',
+                    help='number of label classes (default: 10)')
 parser.add_argument('--gp', default=None, type=str, metavar='POOL',
                     help='Global pool type, one of (fast, avg, max, avgmax, avgmaxc). Model default if None.')
 parser.add_argument('--img-size', type=int, default=None, metavar='N',
@@ -274,6 +281,27 @@ parser.add_argument("--pretrain_path", default=None, type=str)
 parser.add_argument("--evaluate", action='store_true', default=False,
                     help='whether evaluate the model')
 
+transform_train = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    # transforms.Resize(size),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+transform_test = transforms.Compose([
+    # transforms.Resize(size),
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+# trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=8)
+
+testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+# testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=8)
+
+classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
 def _parse_args():
     # Do we have a config file to parse?
@@ -480,11 +508,12 @@ def main():
     if args.local_rank == 0:
         _logger.info('Scheduled epochs: {}'.format(num_epochs))
 
-    train_dir = os.path.join(args.data, 'train')
-    if not os.path.exists(train_dir):
-        _logger.error('Training folder does not exist at: {}'.format(train_dir))
-        exit(1)
-    dataset_train = Dataset(train_dir)
+    # train_dir = os.path.join(args.data, 'train')
+    # if not os.path.exists(train_dir):
+    #     _logger.error('Training folder does not exist at: {}'.format(train_dir))
+    #     exit(1)
+    # dataset_train = Dataset(train_dir)
+    dataset_train = trainset
 
     collate_fn = None
     mixup_fn = None
@@ -535,13 +564,13 @@ def main():
         repeated_aug=args.repeated_aug
     )
 
-    eval_dir = os.path.join(args.data, 'val')
-    if not os.path.isdir(eval_dir):
-        eval_dir = os.path.join(args.data, 'validation')
-        if not os.path.isdir(eval_dir):
-            _logger.error('Validation folder does not exist at: {}'.format(eval_dir))
-            exit(1)
-    dataset_eval = Dataset(eval_dir)
+    # eval_dir = os.path.join(args.data, 'val')
+    # if not os.path.isdir(eval_dir):
+    #     eval_dir = os.path.join(args.data, 'validation')
+    #     if not os.path.isdir(eval_dir):
+    #         _logger.error('Validation folder does not exist at: {}'.format(eval_dir))
+    #         exit(1)
+    dataset_eval = Dataset(testset) 
 
     loader_eval = create_loader(
         dataset_eval,

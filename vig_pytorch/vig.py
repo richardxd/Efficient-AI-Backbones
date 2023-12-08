@@ -7,7 +7,10 @@ import torch.nn.functional as F
 from torch.nn import Sequential as Seq
 from gcn_lib import Grapher, act_layer
 
-from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+# from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+# from timm.data import CIFAR10_DEFAULT_MEAN, CIFAR10_DEFAULT_STD
+import torchvision.datasets as datasets
+
 from timm.models.helpers import load_pretrained
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.registry import register_model
@@ -16,9 +19,9 @@ from timm.models.registry import register_model
 def _cfg(url='', **kwargs):
     return {
         'url': url,
-        'num_classes': 1000, 'input_size': (3, 224, 224), 'pool_size': None,
+        'num_classes': 10, 'input_size': (3, 32, 32), 'pool_size': None,
         'crop_pct': .9, 'interpolation': 'bicubic',
-        'mean': IMAGENET_DEFAULT_MEAN, 'std': IMAGENET_DEFAULT_STD,
+        'mean': (0.4914, 0.4822, 0.4465), 'std':  (0.2023, 0.1994, 0.2010),
         'first_conv': 'patch_embed.proj', 'classifier': 'head',
         **kwargs
     }
@@ -26,7 +29,7 @@ def _cfg(url='', **kwargs):
 
 default_cfgs = {
     'gnn_patch16_224': _cfg(
-        crop_pct=0.9, input_size=(3, 224, 224),
+        crop_pct=0.9, input_size=(3, 32, 32),
         mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5),
     ),
 }
@@ -61,22 +64,32 @@ class Stem(nn.Module):
     """ Image to Visual Word Embedding
     Overlap: https://arxiv.org/pdf/2106.13797.pdf
     """
-    def __init__(self, img_size=224, in_dim=3, out_dim=768, act='relu'):
+    # def __init__(self, img_size=32, in_dim=3, out_dim=768, act='relu'):
+    def __init__(self, img_size=32, in_dim=3, out_dim=192, act='relu'):
         super().__init__()
         self.convs = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim//8, 3, stride=2, padding=1),
-            nn.BatchNorm2d(out_dim//8),
-            act_layer(act),
-            nn.Conv2d(out_dim//8, out_dim//4, 3, stride=2, padding=1),
+            # nn.Conv2d(in_dim, out_dim//8, 3, stride=2, padding=1),
+            # nn.BatchNorm2d(out_dim//8),
+            # act_layer(act),
+            # nn.Conv2d(out_dim//8, out_dim//4, 3, stride=2, padding=1),
+            # nn.BatchNorm2d(out_dim//4),
+            # act_layer(act),
+            # nn.Conv2d(out_dim//4, out_dim//2, 3, stride=2, padding=1),
+            # nn.BatchNorm2d(out_dim//2),
+            # act_layer(act),
+            # nn.Conv2d(out_dim//2, out_dim, 3, stride=2, padding=1),
+            # nn.BatchNorm2d(out_dim),
+            # act_layer(act),
+            # nn.Conv2d(out_dim, out_dim, 3, stride=1, padding=1),
+            # nn.BatchNorm2d(out_dim),
+
+            nn.Conv2d(in_dim, out_dim//4, 3, stride=2, padding=1),
             nn.BatchNorm2d(out_dim//4),
             act_layer(act),
             nn.Conv2d(out_dim//4, out_dim//2, 3, stride=2, padding=1),
             nn.BatchNorm2d(out_dim//2),
             act_layer(act),
             nn.Conv2d(out_dim//2, out_dim, 3, stride=2, padding=1),
-            nn.BatchNorm2d(out_dim),
-            act_layer(act),
-            nn.Conv2d(out_dim, out_dim, 3, stride=1, padding=1),
             nn.BatchNorm2d(out_dim),
         )
 
@@ -107,7 +120,7 @@ class DeepGCN(torch.nn.Module):
         print('num_knn', num_knn)
         max_dilation = 196 // max(num_knn)
         
-        self.pos_embed = nn.Parameter(torch.zeros(1, channels, 14, 14))
+        self.pos_embed = nn.Parameter(torch.zeros(1, channels, 4, 4))
 
         if opt.use_dilation:
             self.backbone = Seq(*[Seq(Grapher(channels, num_knn[i], min(i // 4 + 1, max_dilation), conv, act, norm,
@@ -150,7 +163,7 @@ class DeepGCN(torch.nn.Module):
 @register_model
 def vig_ti_224_gelu(pretrained=False, **kwargs):
     class OptInit:
-        def __init__(self, num_classes=1000, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
+        def __init__(self, num_classes=10, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
             self.k = num_knn # neighbor num (default:9)
             self.conv = 'mr' # graph conv layer {edge, mr}
             self.act = 'gelu' # activation layer {relu, prelu, leakyrelu, gelu, hswish}
@@ -160,7 +173,7 @@ def vig_ti_224_gelu(pretrained=False, **kwargs):
             self.n_filters = 192 # number of channels of deep features
             self.n_classes = num_classes # Dimension of out_channels
             self.dropout = drop_rate # dropout rate
-            self.use_dilation = True # use dilated knn or not
+            self.use_dilation = False # use dilated knn or not
             self.epsilon = 0.2 # stochastic epsilon for gcn
             self.use_stochastic = False # stochastic for gcn, True or False
             self.drop_path = drop_path_rate
@@ -174,7 +187,7 @@ def vig_ti_224_gelu(pretrained=False, **kwargs):
 @register_model
 def vig_s_224_gelu(pretrained=False, **kwargs):
     class OptInit:
-        def __init__(self, num_classes=1000, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
+        def __init__(self, num_classes=10, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
             self.k = num_knn # neighbor num (default:9)
             self.conv = 'mr' # graph conv layer {edge, mr}
             self.act = 'gelu' # activation layer {relu, prelu, leakyrelu, gelu, hswish}
@@ -184,7 +197,7 @@ def vig_s_224_gelu(pretrained=False, **kwargs):
             self.n_filters = 320 # number of channels of deep features
             self.n_classes = num_classes # Dimension of out_channels
             self.dropout = drop_rate # dropout rate
-            self.use_dilation = True # use dilated knn or not
+            self.use_dilation = False # use dilated knn or not
             self.epsilon = 0.2 # stochastic epsilon for gcn
             self.use_stochastic = False # stochastic for gcn, True or False
             self.drop_path = drop_path_rate
@@ -198,7 +211,7 @@ def vig_s_224_gelu(pretrained=False, **kwargs):
 @register_model
 def vig_b_224_gelu(pretrained=False, **kwargs):
     class OptInit:
-        def __init__(self, num_classes=1000, drop_path_rate=0.0, drop_rate=0.0, num_knn=9, **kwargs):
+        def __init__(self, num_classes=10, drop_path_rate=0.0, drop_rate=0.0, num_knn=8, **kwargs):
             self.k = num_knn # neighbor num (default:9)
             self.conv = 'mr' # graph conv layer {edge, mr}
             self.act = 'gelu' # activation layer {relu, prelu, leakyrelu, gelu, hswish}
@@ -208,7 +221,7 @@ def vig_b_224_gelu(pretrained=False, **kwargs):
             self.n_filters = 640 # number of channels of deep features
             self.n_classes = num_classes # Dimension of out_channels
             self.dropout = drop_rate # dropout rate
-            self.use_dilation = True # use dilated knn or not
+            self.use_dilation = False # use dilated knn or not
             self.epsilon = 0.2 # stochastic epsilon for gcn
             self.use_stochastic = False # stochastic for gcn, True or False
             self.drop_path = drop_path_rate
